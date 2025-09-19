@@ -1,19 +1,37 @@
-# BECKN Adapter Installer
+# BECKN Onix GCP Installer
 
 ## Introduction
 
-The **BECKN Adapter Installer** automates the provisioning of infrastructure and application deployment for your BECKN ecosystem. It simplifies setup by managing cloud resources and deploying necessary components.
+The **BECKN Onix GCP Installer** automates the provisioning of infrastructure and application deployment for your BECKN ecosystem. It simplifies setup by managing cloud resources and deploying necessary components.
 
 ---
 
-## Getting Started
+## Prerequisites
 
 **Important:** This installer is designed to run on **macOS or Linux** environments and requires **Bash version 4.0 or higher**.
 
 Follow these steps to prepare your environment before running the installer.
 
-### 1. Prerequisites
+### Google Cloud Project
+You must have google cloud project with 
+ - Billing enabled.
+ - The following APIs enabled:
+    -  Compute Engine API
+    -  Kubernetes Engine API
+    -  Cloud Resource Manager API
+    -  Service Networking API
+    -  Secret Manager API
+    -  Google Cloud Memorystore for Redis API
+    -  Cloud SQL Admin API
+    -  Artifact Registry API
 
+### Registered Domain Names
+You will need at least one registered domain name (e.g., your-company.com) for which you have administrative access.
+
+Why? These domains are required to expose the Onix services (like the gateway, registry, adapter or subscriber) to the public internet securely.
+
+### Required Tools
+   
 -   **Google Cloud SDK (`gcloud`)**: For authenticating with Google Cloud and managing resources.
     -   Follow the [official installation guide](https://cloud.google.com/sdk/docs/install).
     -   After installation, run `gcloud init` and `gcloud auth login`.
@@ -60,17 +78,6 @@ Follow these steps to prepare your environment before running the installer.
     # Install Angular CLI
     npm install -g @angular/cli
     ```
--   **Google Cloud Project** with:
-    -   Billing enabled.
-    -   The following APIs enabled:
-        -   Compute Engine API
-        -   Kubernetes Engine API
-        -   Cloud Resource Manager API
-        -   Service Networking API
-        -   Secret Manager API
-        -   Google Cloud Memorystore for Redis API
-        -   Cloud SQL Admin API
-        -   Artifact Registry API
 
 ---
 
@@ -124,9 +131,8 @@ If you prefer, create a service account in the GCP Console and manually assign i
 -   Service Account User
 -   DNS Administrator
 
----
 
-## Configuration
+### 3. Configuration
 
 Set your active GCP project in the `gcloud` CLI:
 
@@ -135,7 +141,7 @@ gcloud config set project your-project-id
 ```
 
 
-### 3. Verify Tool Installation
+### 4. Verify Tool Installation
 gcloud --version
 terraform --version
 helm version
@@ -147,7 +153,7 @@ gke-gcloud-auth-plugin --version
 python3 --version
 go version
 
-### 4. Create Build Artifacts
+### 5. Create Build Artifacts
 
 Before running the installer, you need to build and push the required Docker images to your Artifact Registry.
 **Note** Make sure Docker daemon is running in your system
@@ -234,13 +240,18 @@ Before proceeding with the application deployment step in the installer, if eith
     -   `bppTxnReceiver-routing.yaml`: Required if a BPP is being deployed.
     -   `bppTxnCaller-routing.yaml`: Required if a BPP is being deployed.
 -   **`plugins` folder**: This folder should contain the plugin bundle, which is a `.zip` file.
-## Note: Please add your routing config .yaml files in adapter_artifacts/routing_configs folder before infra deployment step.
-#
-## Note : If you are using pubsub please add Adapter topic name from infra deployment output and add in .yaml files in adapter_artifacts/routing_configs folder.
-### Search curl request
+
+***Important Notes***
+- Please add your routing config .yaml files in adapter_artifacts/routing_configs folder before infra deployment step.
+- If you are using pubsub please add Adapter topic name from infra deployment output and add in .yaml files in adapter_artifacts/routing_configs folder.
 
 
-### To delete the infrstructure run command
+---
+
+## Cleanup and Destruction
+To uninstall Onix and delete all associated infrastructure, run the following command from the onix/deploy/onix-installer directory.
+
+ ⚠️ Warning: This command is irreversible. It will delete all infrastructure created by the installer (such as GKE clusters, databases, and Redis instances) and will also delete all Onix services that you created through the installer
 
 ```bash 
  make destroy-infra

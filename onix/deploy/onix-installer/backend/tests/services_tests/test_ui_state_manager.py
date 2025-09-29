@@ -18,7 +18,7 @@ from unittest.mock import patch, mock_open, MagicMock
 import os
 
 # Import the functions and logger to be tested
-from services.ui_state_manager import load_all_data, _save_data, store_bulk_values, logger
+from services.ui_state_manager import load_all_data, _save_data, store_bulk_values, logger, _get_db_file_path
 
 class TestUIStateManager(unittest.TestCase):
 
@@ -76,6 +76,23 @@ class TestUIStateManager(unittest.TestCase):
             self.assertEqual(result, {})
             # Check if the correct warning was logged
             self.assertIn("is corrupted or not valid JSON", cm.output[0])
+
+    @patch('services.ui_state_manager._get_db_file_path', return_value='dummy/path/ui_state.json')
+    def test_load_all_data_io_error(self, mock_get_path):
+        """
+        Test that load_all_data returns an empty dict and logs an error on IOError.
+        """
+        m = mock_open()
+        m.side_effect = IOError("File read error")
+
+        with patch('os.path.exists', return_value=True), \
+             patch('os.path.getsize', return_value=100), \
+             patch('builtins.open', m), \
+             self.assertLogs(logger, level='ERROR') as cm:
+            
+            result = load_all_data()
+            self.assertEqual(result, {})
+            self.assertIn("Error reading UI state file", cm.output[0])
 
     @patch('services.ui_state_manager._get_db_file_path', return_value='dummy/path/ui_state.json')
     def test_save_data_success(self, mock_get_path):
@@ -138,6 +155,20 @@ class TestUIStateManager(unittest.TestCase):
             "new_key": "new_value"
         }
         mock_save_data.assert_called_once_with(expected_data_to_save)
+
+    def test_get_db_file_path_constructs_correctly(self):
+        """
+        Test that _get_db_file_path returns the correct path.
+        """
+        # This test is somewhat dependent on the project structure.
+        # It assumes the 'backend' directory is one level up from the 'services' directory.
+        expected_path_fragment = os.path.join('onix-installer', 'backend', 'ui_state.json')
+        
+        actual_path = _get_db_file_path()
+        
+        # Instead of asserting the full absolute path (which can be brittle),
+        # we check if the constructed path ends with the expected structure.
+        self.assertTrue(actual_path.endswith(expected_path_fragment))
 
 
 if __name__ == '__main__':

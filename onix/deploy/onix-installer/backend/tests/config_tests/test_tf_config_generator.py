@@ -52,15 +52,13 @@ class TestTerraformConfigGenerator(unittest.TestCase):
         tf_config_generator.logger.propagate = True
 
     @patch('config.tf_config_generator.write_file_content')
-    @patch('config.tf_config_generator.read_file_content')
     @patch('config.tf_config_generator.render_jinja_template')
     @patch('os.path.join', side_effect=os.path.join) # Use real os.path.join unless specific mocks are needed
-    def test_generate_config_success_small(self, mock_os_path_join, mock_render_template, mock_read_file, mock_write_file):
+    def test_generate_config_success_small(self, mock_os_path_join, mock_render_template, mock_write_file):
         """
         Test successful generation of Terraform config for 'small' deployment type.
         """
         mock_render_template.return_value = "main_config_content"
-        mock_read_file.return_value = "small_size_vars"
 
         req = InfraDeploymentRequest(
             project_id="test-proj",
@@ -81,6 +79,7 @@ class TestTerraformConfigGenerator(unittest.TestCase):
             "project_id": "test-proj",
             "region": "us-west1",
             "suffix": "my-app",
+            "deployment_size": "small",
             "provision_adapter_infra": True, # BAP is True
             "provision_gateway_infra": False, # GATEWAY is False
             "provision_registry_infra": True, # REGISTRY is True
@@ -89,7 +88,6 @@ class TestTerraformConfigGenerator(unittest.TestCase):
         # Expected paths for mocking os.path.join (relative to patched constants)
         expected_template_source_dir = os.path.join(self.mock_template_dir, "tf_configs")
         expected_output_tfvars_path = os.path.join(self.mock_tf_dir, "generated-terraform.tfvars")
-        expected_size_vars_path = os.path.join(expected_template_source_dir, "small_vars.tfvars")
 
         # Assert render_jinja_template was called correctly
         mock_render_template.assert_called_once_with(
@@ -98,23 +96,17 @@ class TestTerraformConfigGenerator(unittest.TestCase):
             context=expected_jinja_context
         )
 
-        # Assert read_file_content was called for the size-specific file
-        mock_read_file.assert_called_once_with(expected_size_vars_path)
-
         # Assert write_file_content was called with merged content
-        expected_merged_content = "main_config_content" + "\n\n# --- Size-Specific Variables ---\n" + "small_size_vars"
-        mock_write_file.assert_called_once_with(expected_output_tfvars_path, expected_merged_content)
+        mock_write_file.assert_called_once_with(expected_output_tfvars_path, "main_config_content")
 
     @patch('config.tf_config_generator.write_file_content')
-    @patch('config.tf_config_generator.read_file_content')
     @patch('config.tf_config_generator.render_jinja_template')
     @patch('os.path.join', side_effect=os.path.join)
-    def test_generate_config_success_medium_no_bap_bpp(self, mock_os_path_join, mock_render_template, mock_read_file, mock_write_file):
+    def test_generate_config_success_medium_no_bap_bpp(self, mock_os_path_join, mock_render_template, mock_write_file):
         """
         Test successful generation for 'medium' type with no BAP/BPP components.
         """
         mock_render_template.return_value = "main_config_content_medium"
-        mock_read_file.return_value = "medium_size_vars"
 
         req = InfraDeploymentRequest(
             project_id="test-medium",
@@ -134,6 +126,7 @@ class TestTerraformConfigGenerator(unittest.TestCase):
             "project_id": "test-medium",
             "region": "us-east1",
             "suffix": "my-app-medium",
+            "deployment_size": "medium",
             "provision_adapter_infra": False, # Both BAP and BPP are False
             "provision_gateway_infra": True,
             "provision_registry_infra": False,
@@ -144,80 +137,16 @@ class TestTerraformConfigGenerator(unittest.TestCase):
             template_name="main_tfvars.tfvars.j2",
             context=expected_jinja_context
         )
-        mock_read_file.assert_called_once_with(
-            os.path.join(os.path.join(self.mock_template_dir, "tf_configs"), "medium_vars.tfvars")
-        )
-        expected_merged_content = "main_config_content_medium" + "\n\n# --- Size-Specific Variables ---\n" + "medium_size_vars"
         mock_write_file.assert_called_once_with(
             os.path.join(self.mock_tf_dir, "generated-terraform.tfvars"),
-            expected_merged_content
+            "main_config_content_medium"
         )
-
-    @patch('config.tf_config_generator.write_file_content')
-    @patch('config.tf_config_generator.read_file_content', side_effect=FileNotFoundError)
-    @patch('config.tf_config_generator.render_jinja_template', return_value="main_config_content")
-    @patch('os.path.join', side_effect=os.path.join)
-    @patch('config.tf_config_generator.logger')
-    def test_generate_config_size_file_not_found(self, mock_logger, mock_os_path_join, mock_render_template, mock_read_file, mock_write_file):
-        """
-        Test behavior when the size-specific tfvars file is not found.
-        It should log a warning but continue and write the main config.
-        """
-        req = InfraDeploymentRequest(
-            project_id="test-proj-nf",
-            region="us-west1",
-            app_name="my-app-nf",
-            type=DeploymentType.LARGE,
-            components={}
-        )
-
-        tf_config_generator.generate_config(req)
-
-        mock_render_template.assert_called_once()
-        
-        mock_read_file.assert_called_once()
-
-        mock_logger.warning.assert_called_once()
-        self.assertIn("Warning: Size-specific variables file", mock_logger.warning.call_args[0][0])
-
-        expected_merged_content = "main_config_content" + "\n\n# --- Size-Specific Variables ---\n"
-        mock_write_file.assert_called_once_with(
-            os.path.join(self.mock_tf_dir, "generated-terraform.tfvars"),
-            expected_merged_content
-        )
-
-    @patch('config.tf_config_generator.write_file_content')
-    @patch('config.tf_config_generator.read_file_content', side_effect=IOError("Permission denied"))
-    @patch('config.tf_config_generator.render_jinja_template', return_value="main_config_content")
-    @patch('os.path.join', side_effect=os.path.join)
-    @patch('config.tf_config_generator.logger')
-    def test_generate_config_size_file_io_error(self, mock_logger, mock_os_path_join, mock_render_template, mock_read_file, mock_write_file):
-        """
-        Test error handling when reading the size-specific tfvars file fails with an IOError.
-        It should re-raise the IOError and not write the file.
-        """
-        req = InfraDeploymentRequest(
-            project_id="test-proj-io",
-            region="us-west1",
-            app_name="my-app-io",
-            type=DeploymentType.SMALL,
-            components={}
-        )
-
-        with self.assertRaisesRegex(IOError, "Permission denied"):
-            tf_config_generator.generate_config(req)
-
-        mock_render_template.assert_called_once()
-        mock_read_file.assert_called_once()
-        mock_logger.error.assert_called_once()
-        mock_write_file.assert_not_called()
 
     @patch('config.tf_config_generator.write_file_content', side_effect=IOError("Disk full"))
-    @patch('config.tf_config_generator.read_file_content', return_value="size_vars")
     @patch('config.tf_config_generator.render_jinja_template', return_value="main_config_content")
     @patch('os.path.join', side_effect=os.path.join)
     @patch('config.tf_config_generator.logger')
-    def test_generate_config_write_error(self, mock_logger, mock_os_path_join, mock_render_template, mock_read_file, mock_write_file):
+    def test_generate_config_write_error(self, mock_logger, mock_os_path_join, mock_render_template, mock_write_file):
         """
         Test error handling when writing the merged tfvars file fails.
         """
@@ -233,15 +162,13 @@ class TestTerraformConfigGenerator(unittest.TestCase):
             tf_config_generator.generate_config(req)
 
         mock_render_template.assert_called_once()
-        mock_read_file.assert_called_once()
         mock_write_file.assert_called_once()
         mock_logger.error.assert_called_once()
 
     @patch('config.tf_config_generator.render_jinja_template', side_effect=Exception("Jinja Error"))
     @patch('config.tf_config_generator.logger')
-    @patch('config.tf_config_generator.read_file_content')
     @patch('config.tf_config_generator.write_file_content')
-    def test_generate_config_template_render_error(self, mock_write_file, mock_read_file, mock_logger, mock_render_template):
+    def test_generate_config_template_render_error(self, mock_write_file, mock_logger, mock_render_template):
         """
         Test error handling when rendering the main template fails.
         """
@@ -258,7 +185,6 @@ class TestTerraformConfigGenerator(unittest.TestCase):
 
         mock_render_template.assert_called_once()
         mock_logger.error.assert_called_once()
-        self.assertFalse(mock_read_file.called)
         self.assertFalse(mock_write_file.called)
 
 

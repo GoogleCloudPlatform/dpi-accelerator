@@ -261,6 +261,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
 
 
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True, "registry": True},
             domain_names={"app": "my-app.com", "adapter": "adapter.com", "registry": "registry.com"},
             image_urls={"bap": "repo/bap:v1"},
@@ -314,6 +315,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
         self.mock_app_config.generate_app_configs.side_effect = FileNotFoundError("App config template missing")
 
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True}, domain_names={}, image_urls={},
             registry_url=self.dummy_registry_url,
             registry_config=self.dummy_registry_config,
@@ -345,6 +347,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
         self.mock_app_config.get_deployment_environment_variables.return_value = {}
 
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True}, domain_names={}, image_urls={},
             registry_url=self.dummy_registry_url,
             registry_config=self.dummy_registry_config,
@@ -369,6 +372,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
     @patch('asyncio.create_subprocess_exec', side_effect=Exception("Unexpected app process error"))
     async def test_run_app_deployment_general_exception(self, mock_create_subprocess_exec, mock_get_services_to_deploy):
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True}, domain_names={}, image_urls={},
             registry_url=self.dummy_registry_url,
             registry_config=self.dummy_registry_config,
@@ -392,6 +396,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
     def test_get_services_to_deploy_all_components(self, mock_should_deploy_subscriber):
         mock_should_deploy_subscriber.return_value = True # For this test case, subscriber should be deployed if components imply it
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "bap": True,
                 "bpp": True,
@@ -415,6 +420,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
     def test_get_services_to_deploy_bap_only(self, mock_should_deploy_subscriber):
         mock_should_deploy_subscriber.return_value = True # 'bap' implies subscriber
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "bap": True,
                 "bpp": False,
@@ -434,6 +440,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
     def test_get_services_to_deploy_registry_only(self, mock_should_deploy_subscriber):
         mock_should_deploy_subscriber.return_value = False # 'registry' alone does NOT imply subscriber
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "bap": False,
                 "bpp": False,
@@ -454,6 +461,7 @@ class TestDeploymentManager(unittest.IsolatedAsyncioTestCase):
     def test_get_services_to_deploy_no_components(self, mock_should_deploy_subscriber):
         mock_should_deploy_subscriber.return_value = False # No relevant components implies no subscriber
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={},
             domain_names={}, image_urls={},
             registry_url=self.dummy_registry_url,

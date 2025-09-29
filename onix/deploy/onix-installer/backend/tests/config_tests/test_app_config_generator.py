@@ -211,6 +211,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test that the Jinja2 context is prepared correctly, including SA email stripping.
         """
         app_req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True, "bpp": False, "gateway": True, "registry": False}, # Using string keys
             domain_names={
                 "auth_domain": "auth.example.com",
@@ -290,6 +291,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test generation of app configs when all components that create config files are enabled.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "bap": True,
                 "bpp": True,
@@ -366,6 +368,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test generation of app configs when only registry component is enabled.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "registry": True
             },
@@ -431,6 +434,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test that FileNotFoundError during template rendering is caught and re-raised.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={"bap": True},
             domain_names={},
             image_urls={},
@@ -463,6 +467,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test that IOError during file writing is caught and re-raised.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={"gateway": True},
             domain_names={},
             image_urls={},
@@ -485,6 +490,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test that all relevant environment variables are generated correctly for all components.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "bap": True,
                 "bpp": True,
@@ -535,7 +541,8 @@ class TestAppConfigGenerator(unittest.TestCase):
         self.assertIn("SUBSCRIBER_IMAGE_URL", env_vars)
         self.assertEqual(env_vars["SUBSCRIBER_IMAGE_URL"], "repo/subscriber:1.0")
 
-        self.assertEqual(len(env_vars), 9) # DEPLOY_SERVICES + 4 Domains + 4 Image URLs
+        self.assertEqual(env_vars["ENABLE_SCHEMA_VALIDATION"], "false")
+        self.assertEqual(len(env_vars), 10) # DEPLOY_SERVICES + 4 Domains + 4 Image URLs + 1 validation flag
 
 
     def test_get_deployment_environment_variables_no_components(self):
@@ -543,6 +550,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test environment variables when no deployable components are selected.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={},
             domain_names={},
             image_urls={},
@@ -553,7 +561,8 @@ class TestAppConfigGenerator(unittest.TestCase):
         services_to_deploy = []
         env_vars = app_config_generator.get_deployment_environment_variables(req, services_to_deploy)
         self.assertEqual(env_vars["DEPLOY_SERVICES"], "")
-        self.assertEqual(len(env_vars), 1)
+        self.assertEqual(env_vars["ENABLE_SCHEMA_VALIDATION"], "false")
+        self.assertEqual(len(env_vars), 2)
 
     @patch('config.app_config_generator._should_deploy_adapter', return_value=True)
     @patch('config.app_config_generator.should_deploy_subscriber', return_value=True)
@@ -562,6 +571,7 @@ class TestAppConfigGenerator(unittest.TestCase):
         Test environment variables for a subset of components.
         """
         req = AppDeploymentRequest(
+            app_name="test-app",
             components={
                 "registry": True,
                 "bap": True
@@ -584,7 +594,26 @@ class TestAppConfigGenerator(unittest.TestCase):
         self.assertEqual(env_vars["REGISTRY_DOMAIN"], "reg.example.com")
         self.assertEqual(env_vars["ADAPTER_DOMAIN"], "adapter.example.com")
         self.assertEqual(env_vars["REGISTRY_IMAGE_URL"], "repo/reg:1.0")
-        self.assertEqual(len(env_vars), 4) # DEPLOY_SERVICES + 2 Domains + 1 Image URL
+        self.assertEqual(env_vars["ENABLE_SCHEMA_VALIDATION"], "false")
+        self.assertEqual(len(env_vars), 5) # DEPLOY_SERVICES + 2 Domains + 1 Image URL + 1 validation flag
+
+    def test_get_deployment_environment_variables_schema_validation_enabled(self):
+        """
+        Test that ENABLE_SCHEMA_VALIDATION is set to 'true' when enabled in the request.
+        """
+        req = AppDeploymentRequest(
+            app_name="test-app",
+            components={"bap": True},
+            domain_names={},
+            image_urls={},
+            registry_url="http://mock-reg.com",
+            adapter_config=AdapterConfig(enable_schema_validation=True),
+            registry_config=RegistryConfig(subscriber_id="sub_id", key_id="key_id"),
+            domain_config=DomainConfig(baseDomain="example.com", domainType="google_domain", dnsZone="example-zone")
+        )
+        services_to_deploy = ["adapter"]
+        env_vars = app_config_generator.get_deployment_environment_variables(req, services_to_deploy)
+        self.assertEqual(env_vars["ENABLE_SCHEMA_VALIDATION"], "true")
 
     @patch('os.path.join', side_effect=os.path.join)
     @patch('config.app_config_generator.utils.read_yaml_file')

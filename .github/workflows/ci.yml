@@ -19,12 +19,6 @@ jobs:
       with:
         go-version: '1.24'
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y zip
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
     - name: Run Go Tests
       run: |
         cd onix
@@ -111,6 +105,11 @@ jobs:
       run: |
         cd onix/deploy/onix-installer/frontend
         npm install
+   
+    - name: Run Tests
+      run: |
+        cd onix/deploy/onix-installer/frontend
+        npm test -- --watch=false --browsers=ChromeHeadless
 
     - name: Build Frontend
       run: |

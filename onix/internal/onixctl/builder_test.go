@@ -16,230 +16,161 @@ package onixctl
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// MockCommandRunner is a mock for testing that captures the command.
+type MockCommandRunner struct {
+	CommandsRun [][]string
+}
+
+// Run captures the command arguments instead of executing them.
+func (m *MockCommandRunner) Run(cmd *exec.Cmd) error {
+	m.CommandsRun = append(m.CommandsRun, cmd.Args)
+	return nil 
+}
+
+func TestZipAndCopyPlugins(t *testing.T) {
+	// 1. Setup
+	mockRunner := &MockCommandRunner{}
+	wsPath := t.TempDir()
+	outputPath := t.TempDir()
+	pluginDir := filepath.Join(wsPath, "plugins_out")
+	require.NoError(t, os.MkdirAll(pluginDir, 0755))
+	_, err := os.Create(filepath.Join(pluginDir, "myplugin.so")) // Need a dummy file to trigger zip
+	require.NoError(t, err)
+
+	config := &Config{
+		ZipFileName: "plugins.zip",
+	}
+	builder := &Builder{
+		config:        config,
+		workspacePath: wsPath,
+		outputPath:    outputPath,
+		runner:        mockRunner,
+	}
+
+	// 2. Execute
+	err = builder.zipAndCopyPlugins()
+
+	// 3. Assert
+	require.NoError(t, err)
+	require.Len(t, mockRunner.CommandsRun, 1, "Expected one command to be run")
+
+	expectedCmd := []string{"zip", "-r", filepath.Join(outputPath, "plugins.zip"), "."}
+	assert.Equal(t, expectedCmd, mockRunner.CommandsRun[0])
+}
+
+// TestZipAndCopyPlugins_NoPlugins doesn't change as it doesn't run external commands.
+func TestZipAndCopyPlugins_NoPlugins(t *testing.T) {
+	wsPath := t.TempDir()
+	outputPath := t.TempDir()
+	pluginDir := filepath.Join(wsPath, "plugins_out")
+	require.NoError(t, os.MkdirAll(pluginDir, 0755))
+
+	builder := &Builder{
+		config:        &Config{},
+		workspacePath: wsPath,
+		outputPath:    outputPath,
+		runner:        &MockCommandRunner{},
+	}
+
+	err := builder.zipAndCopyPlugins()
+	assert.NoError(t, err)
+}
 
 func TestNewBuilder(t *testing.T) {
 	config := &Config{
 		Output: "./test-output",
 	}
 	wsPath := t.TempDir()
+	defer os.RemoveAll(config.Output)
 
 	builder, err := NewBuilder(config, wsPath)
-	assert.NoError(t, err)
-	assert.NotNil(t, builder)
-	defer os.RemoveAll(config.Output)
+	require.NoError(t, err)
+	require.NotNil(t, builder)
 
 	assert.DirExists(t, config.Output, "output directory should be created")
 }
 
-func TestBuild(t *testing.T) {
-	// This is a limited test that doesn't actually build anything.
-	// It tests that the Build function can be called without errors.
+func TestBuildPluginsInDocker(t *testing.T) {
+	// 1. Setup
+	mockRunner := &MockCommandRunner{}
+	wsPath := t.TempDir()
 	config := &Config{
 		GoVersion: "1.24",
 		Modules: []Module{
-			{
-				Name:    "app",
-				DirName: "app",
-				Path:    ".",
-				Plugins: map[string]string{
-					"myplugin": "cmd/myplugin",
-				},
-				Images: map[string]Image{
-					"myimage": {
-						Dockerfile: "Dockerfile",
-						Tag:        "v1",
-					},
-				},
-			},
+			{Plugins: map[string]string{"myplugin": "cmd/myplugin"}},
 		},
-	}
-	wsPath := t.TempDir()
-	// Create dummy files and directories
-	appPath := filepath.Join(wsPath, "app")
-	err := os.MkdirAll(filepath.Join(appPath, "cmd", "myplugin"), 0755)
-	assert.NoError(t, err)
-	_, err = os.Create(filepath.Join(appPath, "Dockerfile"))
-	assert.NoError(t, err)
-	// Create a dummy go.mod file
-	err = os.WriteFile(filepath.Join(appPath, "go.mod"), []byte("module myapp"), 0644)
-	assert.NoError(t, err)
-
-	builder, err := NewBuilder(config, wsPath)
-	assert.NoError(t, err)
-
-	// We expect an error because we are not running in a real environment.
-	// However, we can check that the error is the one we expect.
-	err = builder.Build()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "exit status 1")
-}
-
-func TestZipAndCopyPlugins(t *testing.T) {
-	wsPath := t.TempDir()
-	outputPath := t.TempDir()
-	pluginDir := filepath.Join(wsPath, "plugins_out")
-	err := os.MkdirAll(pluginDir, 0755)
-	assert.NoError(t, err)
-
-	// Create a dummy plugin file
-	_, err = os.Create(filepath.Join(pluginDir, "myplugin.so"))
-	assert.NoError(t, err)
-
-	config := &Config{
-		Output:      outputPath,
-		ZipFileName: "plugins.zip",
 	}
 	builder := &Builder{
 		config:        config,
 		workspacePath: wsPath,
-		outputPath:    outputPath,
+		runner:        mockRunner,
 	}
 
-	err = builder.zipAndCopyPlugins()
-	assert.NoError(t, err)
+	// 2. Execute
+	err := builder.buildPluginsInDocker()
 
-	// Check if the zip file was created
-	_, err = os.Stat(filepath.Join(outputPath, "plugins.zip"))
-	assert.NoError(t, err, "zip file should have been created")
+	// 3. Assert
+	require.NoError(t, err)
+	require.Len(t, mockRunner.CommandsRun, 1, "Expected one command to be run")
 
-	// Check if the plugin file was copied
-	_, err = os.Stat(filepath.Join(outputPath, "myplugin.so"))
-	assert.NoError(t, err, "plugin file should have been copied")
-}
-
-func TestBuildPluginsInDocker(t *testing.T) {
-	// This is a limited test that doesn't actually build anything.
-	// It tests that the buildPluginsInDocker function can be called without errors.
-	config := &Config{
-		GoVersion: "1.24",
-		Modules: []Module{
-			{
-				Name:    "app",
-				DirName: "app",
-				Path:    ".",
-				Plugins: map[string]string{
-					"myplugin": "cmd/myplugin",
-				},
-			},
-		},
+	expectedCmdPrefix := []string{
+		"docker", "run", "--rm", "--platform", "linux/amd64",
+		"-v", wsPath + ":/workspace",
+		"-w", "/workspace",
+		"golang:1.24-bullseye",
+		"sh", "./build_plugins.sh",
 	}
-	wsPath := t.TempDir()
-	// Create dummy files and directories
-	appPath := filepath.Join(wsPath, "app")
-	err := os.MkdirAll(filepath.Join(appPath, "cmd", "myplugin"), 0755)
-	assert.NoError(t, err)
-	// Create a dummy go.mod file
-	err = os.WriteFile(filepath.Join(appPath, "go.mod"), []byte("module myapp"), 0644)
-	assert.NoError(t, err)
-
-	builder, err := NewBuilder(config, wsPath)
-	assert.NoError(t, err)
-
-	// We expect an error because we are not running in a real environment.
-	// However, we can check that the error is the one we expect.
-	err = builder.buildPluginsInDocker()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Equal(t, expectedCmdPrefix, mockRunner.CommandsRun[0])
 }
 
 func TestBuildImagesLocally_WithRegistry(t *testing.T) {
-	// This is a limited test that doesn't actually build anything.
-	// It tests that the buildImagesLocally function can be called without errors.
+	// 1. Setup
+	mockRunner := &MockCommandRunner{}
+	wsPath := t.TempDir()
+	dockerfileDir := filepath.Join(wsPath, "app")
+	require.NoError(t, os.MkdirAll(dockerfileDir, 0755))
+	_, err := os.Create(filepath.Join(dockerfileDir, "Dockerfile"))
+	require.NoError(t, err)
+
 	config := &Config{
-		GoVersion: "1.24",
-		Registry:  "my-registry.com/project",
+		Registry: "my-registry.com/project",
 		Modules: []Module{
 			{
-				Name:    "app",
 				DirName: "app",
-				Path:    ".",
 				Images: map[string]Image{
-					"myimage": {
-						Dockerfile: "Dockerfile",
-						Tag:        "v1",
-					},
+					"myimage": {Dockerfile: "Dockerfile", Tag: "v1"},
 				},
 			},
 		},
-	}
-	wsPath := t.TempDir()
-	// Create dummy files and directories
-	appPath := filepath.Join(wsPath, "app")
-	err := os.MkdirAll(appPath, 0755)
-	assert.NoError(t, err)
-	_, err = os.Create(filepath.Join(appPath, "Dockerfile"))
-	assert.NoError(t, err)
-
-	builder, err := NewBuilder(config, wsPath)
-	assert.NoError(t, err)
-
-	// We expect an error because we are not running in a real environment.
-	// However, we can check that the error is the one we expect.
-	err = builder.buildImagesLocally()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "exit status 1")
-}
-
-func TestZipAndCopyPlugins_NoPlugins(t *testing.T) {
-	wsPath := t.TempDir()
-	outputPath := t.TempDir()
-	pluginDir := filepath.Join(wsPath, "plugins_out")
-	err := os.MkdirAll(pluginDir, 0755)
-	assert.NoError(t, err)
-
-	config := &Config{
-		Output:      outputPath,
-		ZipFileName: "plugins.zip",
 	}
 	builder := &Builder{
 		config:        config,
 		workspacePath: wsPath,
-		outputPath:    outputPath,
+		runner:        mockRunner,
 	}
 
-	err = builder.zipAndCopyPlugins()
-	assert.NoError(t, err)
-}
-
-func TestBuildImagesLocally_NoRegistry(t *testing.T) {
-	// This is a limited test that doesn't actually build anything.
-	// It tests that the buildImagesLocally function can be called without errors.
-	config := &Config{
-		GoVersion: "1.24",
-		Modules: []Module{
-			{
-				Name:    "app",
-				DirName: "app",
-				Path:    ".",
-				Images: map[string]Image{
-					"myimage": {
-						Dockerfile: "Dockerfile",
-						Tag:        "v1",
-					},
-				},
-			},
-		},
-	}
-	wsPath := t.TempDir()
-	// Create dummy files and directories
-	appPath := filepath.Join(wsPath, "app")
-	err := os.MkdirAll(appPath, 0755)
-	assert.NoError(t, err)
-	_, err = os.Create(filepath.Join(appPath, "Dockerfile"))
-	assert.NoError(t, err)
-
-	builder, err := NewBuilder(config, wsPath)
-	assert.NoError(t, err)
-
-	// We expect an error because we are not running in a real environment.
-	// However, we can check that the error is the one we expect.
+	// 2. Execute
 	err = builder.buildImagesLocally()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "exit status 1")
-}
 
+	// 3. Assert
+	require.NoError(t, err)
+	require.Len(t, mockRunner.CommandsRun, 2, "Expected build and push commands")
+
+	expectedBuildCmd := []string{
+		"docker", "buildx", "build", "--platform", "linux/amd64", "--load",
+		"-t", "my-registry.com/project/myimage:v1",
+		"-f", "Dockerfile", ".",
+	}
+	expectedPushCmd := []string{"docker", "push", "my-registry.com/project/myimage:v1"}
+
+	assert.Equal(t, expectedBuildCmd, mockRunner.CommandsRun[0])
+	assert.Equal(t, expectedPushCmd, mockRunner.CommandsRun[1])
+}

@@ -134,9 +134,9 @@ describe('StepDeployInfraComponent', () => {
   });
 
   it('should update state service on form value changes', fakeAsync(() => {
-    component.deployInfraForm.patchValue({ appName: 'test-app', deploymentSize: 'medium' });
+    component.deployInfraForm.patchValue({ appName: 'onix', deploymentSize: 'medium' });
     tick(300); // Wait for debounceTime
-    expect(installerStateService.updateAppNameAndSize).toHaveBeenCalledWith('test-app', 'medium');
+    expect(installerStateService.updateAppNameAndSize).toHaveBeenCalledWith('onix', 'medium');
   }));
 
   describe('onDeployInfra', () => {
@@ -144,7 +144,7 @@ describe('StepDeployInfraComponent', () => {
       // Set the installerGoal to ensure component properties are correctly derived
       const state = installerStateService.getCurrentState();
       state.deploymentGoal = { all: true, gateway: true, registry: true, bap: true, bpp: true };
-      component.deployInfraForm.setValue({ appName: 'onix-app', deploymentSize: 'small' });
+      component.deployInfraForm.setValue({ appName: 'onix', deploymentSize: 'small' });
       fixture.detectChanges();
     });
 
@@ -171,7 +171,7 @@ describe('StepDeployInfraComponent', () => {
       const expectedPayload = {
         project_id: 'test-project',
         region: 'us-central1',
-        app_name: 'onix-app',
+        app_name: 'onix',
         type: 'small',
         components: { gateway: true, registry: true, bap: true, bpp: true }
       };

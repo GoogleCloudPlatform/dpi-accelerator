@@ -27,6 +27,18 @@ type Builder struct {
 	config        *Config
 	workspacePath string
 	outputPath    string
+	runner        CommandRunner
+}
+
+type CommandRunner interface {
+    Run(cmd *exec.Cmd) error
+}
+
+type OSCommandRunner struct{}
+
+// Run executes the given command.
+func (r *OSCommandRunner) Run(cmd *exec.Cmd) error {
+	return cmd.Run()
 }
 
 // NewBuilder creates a new Builder.
@@ -44,6 +56,7 @@ func NewBuilder(config *Config, workspacePath string) (*Builder, error) {
 		config:        config,
 		workspacePath: workspacePath,
 		outputPath:    outputPath,
+		runner:        &OSCommandRunner{}, // CHANGED: Initialize the default runner
 	}, nil
 }
 
@@ -103,7 +116,7 @@ func (b *Builder) buildPluginsInDocker() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	return cmd.Run()
+	return b.runner.Run(cmd)
 }
 
 // buildImagesLocally builds the Docker images on the host machine.
@@ -126,7 +139,7 @@ func (b *Builder) buildImagesLocally() error {
 				cmd.Dir = dockerfileDir
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
-				if err := cmd.Run(); err != nil {
+				if err := b.runner.Run(cmd); err != nil {
 					return fmt.Errorf("failed to build image %s: %w", imageName, err)
 				}
 
@@ -135,7 +148,7 @@ func (b *Builder) buildImagesLocally() error {
 					cmdPush := exec.Command("docker", "push", imageName)
 					cmdPush.Stdout = os.Stdout
 					cmdPush.Stderr = os.Stderr
-					if err := cmdPush.Run(); err != nil {
+					if err := b.runner.Run(cmdPush); err != nil {
 						return fmt.Errorf("failed to push image %s: %w", imageName, err)
 					}
 				}
@@ -160,7 +173,7 @@ func (b *Builder) zipAndCopyPlugins() error {
 	fmt.Printf("Creating zip archive at %s...\n", zipFilePath)
 	cmd := exec.Command("zip", "-r", zipFilePath, ".")
 	cmd.Dir = pluginDir
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(cmd); err != nil {
 		return fmt.Errorf("failed to create zip archive: %w", err)
 	}
 

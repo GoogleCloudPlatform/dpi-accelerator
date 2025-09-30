@@ -203,15 +203,19 @@ func setupTestKeyManager(t *testing.T, sm secretMgr, rc plugin.Cache, rl plugin.
 
 func TestNew_Success(t *testing.T) {
 	cfg := &Config{
-		ProjectID: "test-project",
-		CacheTTL:  CacheTTL{PrivateKeysSeconds: 60, PublicKeysSeconds: 120},
-	}
-	// This test is environment-agnostic. It passes if New() succeeds,
-	// or if it fails with the specific error when credentials aren't available.
-	_, _, err := New(context.Background(), newMockCache(), &mockRegistry{}, cfg)
-	if err != nil && !strings.Contains(err.Error(), "failed to create secret manager client") {
-		t.Fatalf("New() with valid config failed unexpectedly: %v", err)
-	}
+        ProjectID: "test-project",
+        CacheTTL:  CacheTTL{PrivateKeysSeconds: 60, PublicKeysSeconds: 120},
+    }
+    mockClient := newMockSecretMgr(0) // Create a mock client
+
+    // Call the new testable function with the mock client
+    _, closer, err := newWithClient(newMockCache(), &mockRegistry{}, cfg, mockClient)
+    if err != nil {
+        t.Fatalf("newWithClient() with valid config failed unexpectedly: %v", err)
+    }
+    if closer == nil {
+        t.Fatal("newWithClient() returned a nil closer function")
+    }
 }
 
 func TestNew_Errors(t *testing.T) {
@@ -227,14 +231,15 @@ func TestNew_Errors(t *testing.T) {
 		{"invalid private key TTL", &Config{ProjectID: "p", CacheTTL: CacheTTL{0, 1}}, &mockRegistry{}, newMockCache(), ErrInvalidTTL},
 		{"invalid public key TTL", &Config{ProjectID: "p", CacheTTL: CacheTTL{1, 0}}, &mockRegistry{}, newMockCache(), ErrInvalidTTL},
 	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := New(context.Background(), tc.cache, tc.reg, tc.cfg)
-			if !errors.Is(err, tc.wantErr) {
-				t.Errorf("expected error %v, got %v", tc.wantErr, err)
-			}
-		})
-	}
+	 for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            mockClient := newMockSecretMgr(0) // Use a mock client
+            _, _, err := newWithClient(tc.cache, tc.reg, tc.cfg, mockClient)
+            if !errors.Is(err, tc.wantErr) {
+                t.Errorf("expected error %v, got %v", tc.wantErr, err)
+            }
+        })
+    }
 }
 
 func TestGenerateKeyset(t *testing.T) {
@@ -847,32 +852,28 @@ func (m *mockRegistryLookup) Lookup(ctx context.Context, sub *model.Subscription
 // setupBenchKeyManager is a helper function to correctly initialize the key manager for tests.
 func setupBenchKeyManager(b *testing.B, mock secretMgr) *keyMgr {
 	// Create a valid config for the key manager.
-	cfg := &Config{
-		ProjectID: "bench-project",
-		CacheTTL: CacheTTL{
-			PrivateKeysSeconds: 3600,
-			PublicKeysSeconds:  3600,
-		},
-	}
+	 cfg := &Config{
+        ProjectID: "bench-project",
+        CacheTTL: CacheTTL{
+            PrivateKeysSeconds: 3600,
+            PublicKeysSeconds:  3600,
+        },
+    }
 
-	// The actual New function returns a key manager, a closer function, and an error.
-	// We provide a mock registry lookup to pass the nil check in New().
-	km, closer, err := New(context.Background(), nil, &mockRegistryLookup{}, cfg)
-	if err != nil {
-		b.Fatalf("Failed to create key manager for benchmark: %v", err)
-	}
+    // Call the testable constructor directly with the provided mock.
+    km, closer, err := newWithClient(nil, &mockRegistryLookup{}, cfg, mock)
+    if err != nil {
+        b.Fatalf("Failed to create key manager for benchmark: %v", err)
+    }
 
-	// Replace the real secret client with our mock.
-	km.secretClient = mock
+    // Use b.Cleanup to ensure the closer function is called when the benchmark finishes.
+    b.Cleanup(func() {
+        if err := closer(); err != nil {
+            b.Errorf("Error during cleanup: %v", err)
+        }
+    })
 
-	// Use b.Cleanup to ensure the closer function is called when the benchmark finishes.
-	b.Cleanup(func() {
-		if err := closer(); err != nil {
-			b.Errorf("Error during cleanup: %v", err)
-		}
-	})
-
-	return km
+    return km
 }
 
 // BenchmarkKeyset_CacheHit measures the performance of fetching a key that is already in the in-memory cache.

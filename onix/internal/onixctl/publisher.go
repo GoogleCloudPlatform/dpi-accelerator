@@ -16,6 +16,7 @@ package onixctl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,26 @@ import (
 
 	"cloud.google.com/go/storage"
 )
+
+// gcsClient defines the minimal interface for a GCS client needed by the publisher.
+// This allows for mocking in tests.
+type gcsClient interface {
+	Bucket(name string) gcsBucketHandle
+}
+
+// gcsBucketHandle defines the bucket-level operations.
+type gcsBucketHandle interface {
+	Object(name string) *storage.ObjectHandle
+}
+
+// gcsClientImpl wraps the real GCS client to satisfy our interface.
+type gcsClientImpl struct {
+	client *storage.Client
+}
+
+func (g *gcsClientImpl) Bucket(name string) gcsBucketHandle {
+	return g.client.Bucket(name)
+}
 
 // Publisher is responsible for publishing artifacts.
 type Publisher struct {
@@ -52,21 +73,29 @@ func (p *Publisher) Publish() error {
 }
 
 // uploadToGCS handles the file upload to Google Cloud Storage.
+// It creates a real GCS client and calls the testable internal logic.
 func (p *Publisher) uploadToGCS(filePath, gsPath string) error {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	realClient, err := storage.NewClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create GCS client: %w", err)
 	}
-	defer client.Close()
+	defer realClient.Close()
 
+	client := &gcsClientImpl{client: realClient}
+	return p.uploadToGCSWithClient(ctx, client, filePath, gsPath)
+}
+
+// uploadToGCSWithClient contains the core logic for uploading a file to GCS
+// using a provided client interface, making it testable.
+func (p *Publisher) uploadToGCSWithClient(ctx context.Context, client gcsClient, filePath, gsPath string) error {
 	// gsPath is expected to be like gs://bucket-name/path/to/object
 	if !strings.HasPrefix(gsPath, "gs://") {
-		return fmt.Errorf("invalid GCS path: must start with gs://")
+		return errors.New("invalid GCS path: must start with gs://")
 	}
 	parts := strings.SplitN(strings.TrimPrefix(gsPath, "gs://"), "/", 2)
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid GCS path: must include bucket and object path")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return errors.New("invalid GCS path: must include bucket and object path")
 	}
 	bucketName := parts[0]
 	objectPath := parts[1]

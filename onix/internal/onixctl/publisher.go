@@ -80,7 +80,7 @@ func (p *Publisher) uploadToGCS(filePath, gsPath string) error {
 	defer gcsClient.Close()
 
 	client := &gcsClientImpl{client: gcsClient}
-	return p.uploadToGCSWithClient(ctx, gcsClient, filePath, gsPath)
+	return p.uploadToGCSWithClient(ctx, client, filePath, gsPath)
 }
 
 // uploadToGCSWithClient contains the core logic for uploading a file to GCS

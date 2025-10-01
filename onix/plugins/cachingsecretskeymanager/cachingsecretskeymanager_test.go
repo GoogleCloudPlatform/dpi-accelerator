@@ -113,13 +113,15 @@ func (m *mockRegistry) Lookup(ctx context.Context, req *model.Subscription) ([]m
 
 func TestNew(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
-		ctx := context.Background()
 		cfg := &Config{
 			ProjectID: "test-project",
 		}
 		cache := &mockCache{}
 		reg := &mockRegistry{}
-		km, closer, err := New(ctx, cache, reg, cfg)
+		mockClient := &mockSecretMgr{} // Create a mock client
+
+		// Test the internal constructor with the mock to bypass real authentication
+		km, closer, err := newWithClient(cache, reg, cfg, mockClient)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -157,8 +159,8 @@ func TestNewErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			_, _, err := New(ctx, tt.cache, tt.reg, tt.cfg)
+			mockClient := &mockSecretMgr{} // Use a mock client here too
+			_, _, err := newWithClient(tt.cache, tt.reg, tt.cfg, mockClient)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}

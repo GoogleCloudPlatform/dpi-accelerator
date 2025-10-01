@@ -151,17 +151,20 @@ const (
 
 // New method creates a new KeyManager instance.
 func New(ctx context.Context, redisCache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *Config) (*keyMgr, func() error, error) {
+	secretClient, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create secret manager client: %w", err)
+	}
+	return newWithClient(redisCache, registryLookup, cfg, secretClient)
+}
+
+func newWithClient(redisCache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *Config, client secretMgr) (*keyMgr, func() error, error) {
 	if err := validateCfg(cfg); err != nil {
 		return nil, nil, err
 	}
 
 	if registryLookup == nil {
 		return nil, nil, ErrNilRegistryLookup
-	}
-
-	secretClient, err := secretmanager.NewClient(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create secret manager client: %w", err)
 	}
 
 	privateKeyTTL := time.Duration(cfg.CacheTTL.PrivateKeysSeconds) * time.Second
@@ -172,16 +175,19 @@ func New(ctx context.Context, redisCache plugin.Cache, registryLookup plugin.Reg
 
 	km := &keyMgr{
 		projectID:         cfg.ProjectID,
-		secretClient:      secretClient,
+		secretClient:      client,
 		registry:          registryLookup,
 		redisCache:        redisCache,
 		inMemoryCache:     inMemCache,
 		publicKeyCacheTTL: time.Duration(cfg.CacheTTL.PublicKeysSeconds) * time.Second,
-		requests: make(map[string]*inFlightRequest),
+		requests:          make(map[string]*inFlightRequest),
 	}
 
 	return km, km.close, nil
 }
+
+
+
 
 // generates new signing and encryption key pairs.
 func (km *keyMgr) GenerateKeyset() (*model.Keyset, error) {

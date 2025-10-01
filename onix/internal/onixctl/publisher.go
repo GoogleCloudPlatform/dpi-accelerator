@@ -25,6 +25,25 @@ import (
 	"cloud.google.com/go/storage"
 )
 
+// gcsClient defines the minimal interface for a GCS client needed by the publisher.
+type gcsClient interface {
+	Bucket(name string) gcsBucketHandle
+}
+
+// gcsBucketHandle defines the bucket-level operations.
+type gcsBucketHandle interface {
+	Object(name string) *storage.ObjectHandle
+}
+
+// gcsClientImpl wraps the real GCS client to satisfy our interface.
+type gcsClientImpl struct {
+	client *storage.Client
+}
+
+func (g *gcsClientImpl) Bucket(name string) gcsBucketHandle {
+	return g.client.Bucket(name)
+}
+
 // Publisher is responsible for publishing artifacts.
 type Publisher struct {
 	config *Config
@@ -54,18 +73,24 @@ func (p *Publisher) Publish() error {
 // uploadToGCS handles the file upload to Google Cloud Storage.
 func (p *Publisher) uploadToGCS(filePath, gsPath string) error {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	gcsClient, err := storage.NewClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create GCS client: %w", err)
 	}
-	defer client.Close()
+	defer gcsClient.Close()
 
+	client := &gcsClientImpl{client: gcsClient}
+	return p.uploadToGCSWithClient(ctx, gcsClient, filePath, gsPath)
+}
+
+// uploadToGCSWithClient contains the core logic for uploading a file to GCS
+func (p *Publisher) uploadToGCSWithClient(ctx context.Context, client gcsClient, filePath, gsPath string) error {
 	// gsPath is expected to be like gs://bucket-name/path/to/object
 	if !strings.HasPrefix(gsPath, "gs://") {
 		return fmt.Errorf("invalid GCS path: must start with gs://")
 	}
 	parts := strings.SplitN(strings.TrimPrefix(gsPath, "gs://"), "/", 2)
-	if len(parts) < 2 {
+	if len(parts) < 2 || parts[0] == "" {
 		return fmt.Errorf("invalid GCS path: must include bucket and object path")
 	}
 	bucketName := parts[0]

@@ -74,6 +74,16 @@ const (
 
 // New method creates a new KeyManager instance.
 func New(ctx context.Context, cache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *Config) (*keyMgr, func() error, error) {
+	secretClient, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create secret manager client: %w", err)
+	}
+	// Call the internal, testable constructor.
+	return newWithClient(cache, registryLookup, cfg, secretClient)
+}
+
+// newWithClient is an internal constructor that accepts a secret manager client interface,
+func newWithClient(cache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *Config, client secretMgr) (*keyMgr, func() error, error) {
 	if err := validateCfg(cfg); err != nil {
 		return nil, nil, err
 	}
@@ -82,14 +92,9 @@ func New(ctx context.Context, cache plugin.Cache, registryLookup plugin.Registry
 		return nil, nil, ErrNilRegistryLookup
 	}
 
-	secretClient, err := secretmanager.NewClient(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create secret manager client: %w", err)
-	}
-
 	km := &keyMgr{
 		projectID:            cfg.ProjectID,
-		secretClient:         secretClient,
+		secretClient:         client,
 		registry:             registryLookup,
 		cache:                cache,
 		subscriberKeysCache:  cfg.SubscriberKeysCache,

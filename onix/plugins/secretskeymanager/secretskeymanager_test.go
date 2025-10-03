@@ -168,8 +168,7 @@ func TestNewErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			_, _, err := New(ctx, tt.cache, tt.reg, tt.cfg)
+			_, _, err :=  newWithClient(tt.cache, tt.reg, tt.cfg, &mockSecretMgr{})
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}

@@ -2,6 +2,7 @@
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
+// You may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
@@ -16,28 +17,23 @@ package main
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
-	keymgr "github.com/google/dpi-accelerator/beckn-onix/plugins/cachingsecretskeymanager"
+	keymgr "github.com/google/dpi-accelerator/beckn-onix/plugins/secretskeymanager"
+
 	"github.com/beckn/beckn-onix/pkg/model"
 	plugin "github.com/beckn/beckn-onix/pkg/plugin/definition"
 )
-
 
 // mockKeyManager is a fake KeyManager that does nothing.
 type mockKeyManager struct{}
 
 func (m *mockKeyManager) GenerateKeyset() (*model.Keyset, error)       { return nil, nil }
-
 func (m *mockKeyManager) InsertKeyset(context.Context, string, *model.Keyset) error { return nil }
-
 func (m *mockKeyManager) Keyset(context.Context, string) (*model.Keyset, error) { return nil, nil }
-
 func (m *mockKeyManager) DeleteKeyset(context.Context, string) error      { return nil }
-
 func (m *mockKeyManager) LookupNPKeys(context.Context, string, string) (string, string, error) {
 	return "", "", nil
 }
@@ -93,13 +89,10 @@ func TestKeyMgrProviderNew(t *testing.T) {
 		}
 
 		originalNewKeyManager := newKeyManager
-
 		defer func() { newKeyManager = originalNewKeyManager }() // Restore it after the test
 
 		newKeyManager = func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
-
 			return &mockKeyManager{}, func() error { return nil }, nil
-
 		}
 		cache := &mockCache{}
 		registry := &mockRegistry{}
@@ -123,6 +116,9 @@ func TestKeyMgrProviderNew(t *testing.T) {
 }
 
 func TestKeyMgrProviderNewErrors(t *testing.T) {
+	var ErrNilCache = "nil cache provided"
+	var ErrNilRegistryLookup = "nil registry lookup provided"
+
 	tests := []struct {
 		name        string
 		config      map[string]string
@@ -143,12 +139,11 @@ func TestKeyMgrProviderNewErrors(t *testing.T) {
 			name:   "nil cache",
 			config: map[string]string{"projectID": "test"},
 			cache:  nil,
-			// THE FIX: We simulate the error coming from the real keymgr.New function.
 			mockFunc: func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
-				// This simulates the check `if cache == nil` failing inside secretskeymanager.go
-				return nil, nil, keymgr.ErrNilCache
+				// This simulates the error that would be returned from the real `New` function.
+				return nil, nil, &customError{s: ErrNilCache}
 			},
-			errContains: keymgr.ErrNilCache.Error(),
+			errContains: ErrNilCache,
 		},
 		{
 			name:     "nil registry",
@@ -156,10 +151,9 @@ func TestKeyMgrProviderNewErrors(t *testing.T) {
 			cache:    &mockCache{},
 			registry: nil,
 			mockFunc: func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
-				// This simulates the check `if registry == nil` failing.
-				return nil, nil, keymgr.ErrNilRegistryLookup
+				return nil, nil, &customError{s: ErrNilRegistryLookup}
 			},
-			errContains: keymgr.ErrNilRegistryLookup.Error(),
+			errContains: ErrNilRegistryLookup,
 		},
 	}
 
@@ -181,7 +175,6 @@ func TestKeyMgrProviderNewErrors(t *testing.T) {
 	}
 }
 
-
 // mockCache implements the Cache interface for testing.
 type mockCache struct {
 	get    func(ctx context.Context, key string) (string, error)
@@ -192,11 +185,17 @@ type mockCache struct {
 }
 
 func (m *mockCache) Get(ctx context.Context, key string) (string, error) {
-	return m.get(ctx, key)
+	if m.get != nil {
+		return m.get(ctx, key)
+	}
+	return "", nil
 }
 
 func (m *mockCache) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
-	return m.set(ctx, key, value, expiration)
+	if m.set != nil {
+		return m.set(ctx, key, value, expiration)
+	}
+	return nil
 }
 
 func (m *mockCache) Delete(ctx context.Context, key string) error {
@@ -226,5 +225,17 @@ type mockRegistry struct {
 }
 
 func (m *mockRegistry) Lookup(ctx context.Context, req *model.Subscription) ([]model.Subscription, error) {
-	return m.lookup(ctx, req)
+	if m.lookup != nil {
+		return m.lookup(ctx, req)
+	}
+	return nil, nil
+}
+
+// customError helps simulate unexported errors for testing purposes.
+type customError struct {
+	s string
+}
+
+func (e *customError) Error() string {
+	return e.s
 }

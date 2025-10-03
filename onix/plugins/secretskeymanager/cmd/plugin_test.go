@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os" // Import the 'os' package
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +47,6 @@ func setupTestServer(t *testing.T) (string, func()) {
 	secretmanagerpb.RegisterSecretManagerServiceServer(s, &mockSecretServer{})
 
 	go func() {
-		// Serve will block, so we run it in a goroutine.
-		// We can ignore the error, as it will be a "server closed" error during cleanup.
 		_ = s.Serve(lis)
 	}()
 
@@ -78,6 +77,7 @@ func TestParseConfig(t *testing.T) {
 }
 
 func TestParseConfigErrors(t *testing.T) {
+	// ... (This function is correct and needs no changes)
 	tests := []struct {
 		name        string
 		config      map[string]string
@@ -104,11 +104,19 @@ func TestParseConfigErrors(t *testing.T) {
 
 func TestKeyMgrProviderNew(t *testing.T) {
 	t.Run("valid configuration", func(t *testing.T) {
-		// Set up the mock server.
 		addr, cleanup := setupTestServer(t)
 		defer cleanup()
-		// Point the client to our mock server. This is the key to the fix.
-		t.Setenv("SECRET_MANAGER_EMULATOR_HOST", addr)
+
+		// THE FIX: Use os.Setenv and defer to ensure cleanup
+		originalAddr, isSet := os.LookupEnv("SECRET_MANAGER_EMULATOR_HOST")
+		os.Setenv("SECRET_MANAGER_EMULATOR_HOST", addr)
+		defer func() {
+			if isSet {
+				os.Setenv("SECRET_MANAGER_EMULATOR_HOST", originalAddr)
+			} else {
+				os.Unsetenv("SECRET_MANAGER_EMULATOR_HOST")
+			}
+		}()
 
 		config := map[string]string{
 			"projectID": "test-project",
@@ -116,7 +124,6 @@ func TestKeyMgrProviderNew(t *testing.T) {
 		cache := &mockCache{}
 		registry := &mockRegistry{}
 		kp := keyMgrProvider{}
-		// The real New() is called, but it connects to the mock server, not GCP.
 		km, kmCleanup, err := kp.New(context.Background(), cache, registry, config)
 		if err != nil {
 			t.Errorf("New() error = %v", err)
@@ -128,7 +135,6 @@ func TestKeyMgrProviderNew(t *testing.T) {
 		if kmCleanup == nil {
 			t.Error("New() returned nil cleanup function")
 		} else {
-			// Test that the cleanup function (which calls client.Close()) doesn't error.
 			if err := kmCleanup(); err != nil {
 				t.Errorf("cleanup() error = %v", err)
 			}
@@ -137,65 +143,68 @@ func TestKeyMgrProviderNew(t *testing.T) {
 }
 
 func TestKeyMgrProviderNewErrors(t *testing.T) {
-	// Set up the mock server once for all sub-tests that need it.
 	addr, cleanup := setupTestServer(t)
 	defer cleanup()
 
+	// THE FIX: Set the emulator host for the entire duration of this test function
+	originalAddr, isSet := os.LookupEnv("SECRET_MANAGER_EMULATOR_HOST")
+	os.Setenv("SECRET_MANAGER_EMULATOR_HOST", addr)
+	defer func() {
+		if isSet {
+			os.Setenv("SECRET_MANAGER_EMULATOR_HOST", originalAddr)
+		} else {
+			os.Unsetenv("SECRET_MANAGER_EMULATOR_HOST")
+		}
+	}()
+
 	tests := []struct {
-		name        string
-		config      map[string]string
-		cache       plugin.Cache
-		registry    plugin.RegistryLookup
-		useEmulator bool // Flag to determine if the emulator is needed for the test.
-		wantErr     error
+		name     string
+		config   map[string]string
+		cache    plugin.Cache
+		registry plugin.RegistryLookup
+		wantErr  error
 	}{
 		{
 			name: "invalid configuration",
 			config: map[string]string{
-				"invalid": "test-project", // Missing projectID, parseConfig will fail first.
+				"invalid": "test-project",
 			},
-			cache:       &mockCache{},
-			registry:    &mockRegistry{},
-			useEmulator: false, // Not needed as config parsing fails before client creation.
-			wantErr:     errors.New("projectID not found in config"),
+			cache:    &mockCache{},
+			registry: &mockRegistry{},
+			wantErr:  errors.New("projectID not found in config"),
 		},
 		{
 			name: "nil cache",
 			config: map[string]string{
 				"projectID": "test-project",
 			},
-			cache:       nil,
-			registry:    &mockRegistry{},
-			useEmulator: true, // Needed to bypass real auth and test the nil check.
-			wantErr:     keymgr.ErrNilCache,
+			cache:    nil,
+			registry: &mockRegistry{},
+			wantErr:  keymgr.ErrNilCache,
 		},
 		{
 			name: "nil registry",
 			config: map[string]string{
 				"projectID": "test-project",
 			},
-			cache:       &mockCache{},
-			registry:    nil,
-			useEmulator: true, // Needed to bypass real auth and test the nil check.
-			wantErr:     keymgr.ErrNilRegistryLookup,
+			cache:    &mockCache{},
+			registry: nil,
+			wantErr:  keymgr.ErrNilRegistryLookup,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.useEmulator {
-				t.Setenv("SECRET_MANAGER_EMULATOR_HOST", addr)
-			} else {
-				// Unset the variable to ensure the test runs without the emulator.
-				t.Setenv("SECRET_MANAGER_EMULATOR_HOST", "")
-			}
+			// Note: We no longer need to set the env var inside the loop
+			// because it's set for the parent test.
+
 			kp := keyMgrProvider{}
 			_, _, err := kp.New(context.Background(), tt.cache, tt.registry, tt.config)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
-			// Check if the actual error contains the expected error message.
 			if !strings.Contains(err.Error(), tt.wantErr.Error()) {
+				// This is line 199 from your error log
 				t.Errorf("expected error containing '%v', got '%v'", tt.wantErr, err)
 			}
 		})
@@ -204,16 +213,14 @@ func TestKeyMgrProviderNewErrors(t *testing.T) {
 
 // mockCache implements the Cache interface for testing.
 type mockCache struct{}
-
-func (m *mockCache) Get(ctx context.Context, key string) (string, error)                                { return "", nil }
-func (m *mockCache) Set(ctx context.Context, key string, value string, expiration time.Duration) error { return nil }
-func (m *mockCache) Delete(ctx context.Context, key string) error                                      { return nil }
-func (m *mockCache) Clear(ctx context.Context) error                                                   { return nil }
-func (m *mockCache) Close() error                                                                      { return nil }
+func (m *mockCache) Get(ctx context.Context, key string) (string, error) { return "", nil }
+func (m *mockCache) Set(ctx context.Context, key, value string, ttl time.Duration) error { return nil }
+func (m *mockCache) Delete(ctx context.Context, key string) error { return nil }
+func (m *mockCache) Clear(ctx context.Context) error { return nil }
+func (m *mockCache) Close() error { return nil }
 
 // mockRegistry implements the RegistryLookup interface for testing.
 type mockRegistry struct{}
-
 func (m *mockRegistry) Lookup(ctx context.Context, req *model.Subscription) ([]model.Subscription, error) {
 	return nil, nil
 }

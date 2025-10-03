@@ -20,8 +20,21 @@ import (
 	"testing"
 	"time"
 
+	keymgr "github.com/google/dpi-accelerator/beckn-onix/plugins/inmemorysecretkeymanager"
 	"github.com/beckn/beckn-onix/pkg/model"
+	plugin "github.com/beckn/beckn-onix/pkg/plugin/definition"
 )
+
+// mockKeyManager is a fake KeyManager that does nothing.
+type mockKeyManager struct{}
+
+func (m *mockKeyManager) GenerateKeyset() (*model.Keyset, error)       { return nil, nil }
+func (m *mockKeyManager) InsertKeyset(context.Context, string, *model.Keyset) error { return nil }
+func (m *mockKeyManager) Keyset(context.Context, string) (*model.Keyset, error) { return nil, nil }
+func (m *mockKeyManager) DeleteKeyset(context.Context, string) error      { return nil }
+func (m *mockKeyManager) LookupNPKeys(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
 
 func TestParseConfig(t *testing.T) {
 	testCases := []struct {
@@ -130,29 +143,30 @@ func (m *mockRegistry) Lookup(ctx context.Context, req *model.Subscription) ([]m
 // --- Tests for keyMgrProvider ---
 
 func TestKeyMgrProviderNew(t *testing.T) {
+	// THE FIX: Temporarily replace the real function with a mock one.
+	originalNewKeyManager := newKeyManager
+	defer func() { newKeyManager = originalNewKeyManager }()
+	newKeyManager = func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+		return &mockKeyManager{}, func() error { return nil }, nil
+	}
+
 	config := map[string]string{
-		"projectID":                 "test-project-from-provider",
-		"privateKeyCacheTTLSeconds": "60",
-		"publicKeyCacheTTLSeconds":  "120",
+		"projectID": "test-project-from-provider",
 	}
 	kp := keyMgrProvider{}
 
-	// This test is environment-agnostic. It will pass if New() succeeds,
-	// or if it fails with the expected error when credentials are not available.
 	_, closer, err := kp.New(context.Background(), &mockCache{}, &mockRegistry{}, config)
-
-	if err != nil && !strings.Contains(err.Error(), "failed to create secret manager client") {
-		t.Errorf("expected secret manager client creation error, but got: %v", err)
+	if err != nil {
+		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
-
-	if err == nil && closer == nil {
-		t.Error("expected a non-nil closer function on successful creation")
+	if closer == nil {
+		t.Error("expected a non-nil closer function")
 	}
 }
 
 func TestKeyMgrProviderNew_Error(t *testing.T) {
 	config := map[string]string{
-		// Missing projectID, which will cause parseConfig to fail.
+		// Missing projectID
 	}
 	kp := keyMgrProvider{}
 	_, _, err := kp.New(context.Background(), &mockCache{}, &mockRegistry{}, config)

@@ -33,12 +33,6 @@ import (
 // mockSecretServer provides a fake implementation of the Secret Manager gRPC service.
 type mockSecretServer struct {
 	secretmanagerpb.UnimplementedSecretManagerServiceServer
-	closeErr error
-}
-
-// Close is a mock method for the server.
-func (s *mockSecretServer) Close() error {
-	return s.closeErr
 }
 
 // setupTestServer starts a mock gRPC server and returns its address and a cleanup function.
@@ -113,7 +107,7 @@ func TestKeyMgrProviderNew(t *testing.T) {
 		// Set up the mock server.
 		addr, cleanup := setupTestServer(t)
 		defer cleanup()
-		// Point the client to our mock server.
+		// Point the client to our mock server. This is the key to the fix.
 		t.Setenv("SECRET_MANAGER_EMULATOR_HOST", addr)
 
 		config := map[string]string{

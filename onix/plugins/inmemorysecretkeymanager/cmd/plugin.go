@@ -32,6 +32,10 @@ const (
 	defaultPublicKeyTTLSeconds  = 3600 // Default to 1 hour
 )
 
+var newKeyManager = func(ctx context.Context, cache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+	return keymgr.New(ctx, cache, registryLookup, cfg)
+}
+
 // keyMgrProvider implements the KeyManagerProvider interface.
 type keyMgrProvider struct{}
 
@@ -44,7 +48,7 @@ func (kp keyMgrProvider) New(ctx context.Context, cache plugin.Cache, registry p
 
 	// The main key manager constructor now handles the logic.
 	// We pass the external cache (for network keys) directly to it.
-	return keymgr.New(ctx, cache, registry, cfg)
+	return newKeyManager(ctx, cache, registry, cfg)
 }
 
 // parseConfig converts the map[string]string to the keyManager.Config struct.

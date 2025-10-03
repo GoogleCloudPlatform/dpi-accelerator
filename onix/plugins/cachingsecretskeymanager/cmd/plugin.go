@@ -25,6 +25,11 @@ import (
 	plugin "github.com/beckn/beckn-onix/pkg/plugin/definition" // Plugin definitions will be imported from here.
 )
 
+var newKeyManager = func(ctx context.Context, cache plugin.Cache, registryLookup plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+	return keymgr.New(ctx, cache, registryLookup, cfg)
+}
+
+
 // keyMgrProvider implements the KeyManagerProvider interface.
 type keyMgrProvider struct{}
 
@@ -40,7 +45,7 @@ func (kp keyMgrProvider) New(ctx context.Context, cache plugin.Cache, registry p
 		cfg.SubscriberKeysCache = false
 		cfg.NetworkKeysCache = false
 	}
-	return keymgr.New(ctx, cache, registry, cfg)
+	return newKeyManager(ctx, cache, registry, cfg)
 }
 
 // parseConfig converts the map[string]string to the keyManager.Config struct.

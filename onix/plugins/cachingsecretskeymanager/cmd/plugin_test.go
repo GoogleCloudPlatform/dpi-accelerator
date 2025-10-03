@@ -16,12 +16,25 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	keymgr "github.com/google/dpi-accelerator/beckn-onix/plugins/cachingsecretskeymanager"
 	"github.com/beckn/beckn-onix/pkg/model"
-	plugin "github.com/beckn/beckn-onix/pkg/plugin/definition" // Plugin definitions will be imported from here.\
+	plugin "github.com/beckn/beckn-onix/pkg/plugin/definition"
 )
+
+// mockKeyManager is a fake KeyManager that does nothing.
+type mockKeyManager struct{}
+
+func (m *mockKeyManager) GenerateKeyset() (*model.Keyset, error)       { return nil, nil }
+func (m *mockKeyManager) InsertKeyset(context.Context, string, *model.Keyset) error { return nil }
+func (m *mockKeyManager) Keyset(context.Context, string) (*model.Keyset, error) { return nil, nil }
+func (m *mockKeyManager) DeleteKeyset(context.Context, string) error      { return nil }
+func (m *mockKeyManager) LookupNPKeys(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
 
 func TestParseConfig(t *testing.T) {
 	tests := []struct {
@@ -129,6 +142,11 @@ func TestParseConfigErrors(t *testing.T) {
 
 func TestKeyMgrProviderNew(t *testing.T) {
 	t.Run("valid configuration", func(t *testing.T) {
+		originalNewKeyManager := newKeyManager
+		defer func() { newKeyManager = originalNewKeyManager }()
+		newKeyManager = func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+			return &mockKeyManager{}, func() error { return nil }, nil
+		}
 		config := map[string]string{
 			"projectID": "test-project",
 		}
@@ -155,35 +173,46 @@ func TestKeyMgrProviderNew(t *testing.T) {
 
 func TestKeyMgrProviderNewErrors(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   map[string]string
-		cache    plugin.Cache
-		registry plugin.RegistryLookup
+		name        string
+		config      map[string]string
+		cache       plugin.Cache
+		registry    plugin.RegistryLookup
+		mockFunc    func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error)
+		errContains string
 	}{
 		{
-			name: "invalid configuration",
-			config: map[string]string{
-				"invalid": "test-project",
+			name:   "invalid configuration",
+			config: map[string]string{"invalid": "test"},
+			mockFunc: func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+				return nil, nil, nil
 			},
-			cache:    &mockCache{},
-			registry: &mockRegistry{},
+			errContains: "projectID not found",
 		},
 		{
-			name: "nil registry",
-			config: map[string]string{
-				"projectID": "test-project",
-			},
+			name:     "nil registry",
+			config:   map[string]string{"projectID": "test"},
 			cache:    &mockCache{},
 			registry: nil,
+			mockFunc: func(ctx context.Context, cache plugin.Cache, registry plugin.RegistryLookup, cfg *keymgr.Config) (plugin.KeyManager, func() error, error) {
+				return nil, nil, keymgr.ErrNilRegistryLookup
+			},
+			errContains: keymgr.ErrNilRegistryLookup.Error(),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			originalNewKeyManager := newKeyManager
+			defer func() { newKeyManager = originalNewKeyManager }()
+			newKeyManager = tt.mockFunc
+
 			kp := keyMgrProvider{}
 			_, _, err := kp.New(context.Background(), tt.cache, tt.registry, tt.config)
 			if err == nil {
-				t.Errorf("expected error, got nil")
+				t.Fatalf("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("expected error containing '%s', got '%v'", tt.errContains, err)
 			}
 		})
 	}

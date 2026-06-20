@@ -1,0 +1,103 @@
+# This workflow automatically updates the beckn-onix dependency,
+# builds the specified microservices and plugins, and saves them as artifacts.
+#
+# It runs on a schedule (every Monday at 5:30 AM UTC) and can also be triggered manually.
+
+name: Weekly Beckn Dependency Update & Build
+
+on:
+  workflow_dispatch:
+
+  # Runs the workflow automatically every Monday at 5:30 AM UTC
+  schedule:
+    - cron: '30 5 * * 1'
+
+jobs:
+  update-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the repository's code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up the Go environment
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      # Step 3: Replace all old import paths with the new one
+      - name: Update Import Statements
+        run: |
+          echo "Searching for and replacing import paths in all .go files..."
+          find ./onix -type f -name "*.go" -exec sed -i 's|github.com/beckn/beckn-onix|github.com/beckn-one/beckn-onix|g' {} +
+          echo "Import paths updated."
+        working-directory: ${{ github.workspace }}
+
+      # Step 4: Update Go modules to use the latest beckn-one dependency
+      - name: Update Go Modules
+        run: |
+          go mod edit -droprequire github.com/beckn/beckn-onix
+          go get github.com/beckn-one/beckn-onix@latest
+          go mod tidy
+        working-directory: ${{ github.workspace }}/onix
+
+      # Step 5: Build Go Binaries
+      - name: Build Go Binaries
+        run: |
+          echo "Creating build output directory..."
+          mkdir -p build
+          
+          SERVICES="admin gateway registry subscriber"
+          echo "Building services: $SERVICES"
+
+          for service in $SERVICES; do
+            echo "Building $service..."
+            cd cmd/$service
+            go build -v -o ../../build/$service .
+            cd ../..
+          done
+          
+          echo "Microservices built successfully."
+        working-directory: ${{ github.workspace }}/onix
+
+       # Step 6: Build the plugins and adapter using onixctl
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Update onixctl source.yaml
+        run: |
+          CONFIG_FILE="onix/deploy/onix-installer/adapter_artifacts/source.yaml"
+          
+          echo "Finding latest tag from onix/go.mod (resolved by Step 4)..."
+          # Read the version that 'go get' placed in go.mod
+          LATEST_TAG=$(grep 'github.com/beckn-one/beckn-onix' onix/go.mod | awk '{print $2}')
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "::error::Could not find beckn-one/beckn-onix version in go.mod!"
+            exit 1
+          fi
+
+          echo "Updating $CONFIG_FILE to use beckn-one@$LATEST_TAG..."
+          
+          # Replace the repo URL
+          sed -i 's|https://github.com/beckn/beckn-onix|https://github.com/beckn-one/beckn-onix|g' $CONFIG_FILE
+          
+          # Replace the go module name
+          sed -i 's|github.com/beckn/beckn-onix|github.com/beckn-one/beckn-onix|g' $CONFIG_FILE
+          
+          # Update the version to the LATEST_TAG found in go.mod
+          # Note: We use double quotes (") to allow shell variable expansion
+          sed -i "s|version: v1.0.0|version: $LATEST_TAG|g" $CONFIG_FILE
+          
+          echo "Updated config file contents:"
+          cat $CONFIG_FILE
+        working-directory: ${{ github.workspace }}
+
+      - name: 'Build and Run onixctl'
+        run: |
+          cd onix && go build ./cmd/onixctl && cd .. && ./onix/onixctl --config onix/deploy/onix-installer/adapter_artifacts/source.yaml
+          
+          echo "Adapter artifacts built successfully."
+        working-directory: ${{ github.workspace }}

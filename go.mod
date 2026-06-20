@@ -11,7 +11,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.36.1
 	github.com/beckn-one/beckn-onix v1.3.1
 	github.com/doug-martin/goqu/v9 v9.19.0
-	github.com/go-chi/chi/v5 v5.2.2
+	github.com/go-chi/chi/v5 v5.2.4
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
